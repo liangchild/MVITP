@@ -28,10 +28,10 @@ def multiple_samples_collate(batch, fold=False):
         (tuple): collated data batch.
     """
     inputs, labels, video_idx, extra_data = zip(*batch)
-    if not isinstance(labels[0], (dict,)):
-        inputs = [item for sublist in inputs for item in sublist]
-        labels = [item for sublist in labels for item in sublist]
-        video_idx = [item for sublist in video_idx for item in sublist]
+    # if not isinstance(labels[0], (dict,)):
+    #     inputs = [item for sublist in inputs for item in sublist]
+    #     labels = [item for sublist in labels for item in sublist]
+    #     video_idx = [item for sublist in video_idx for item in sublist]
     # time = [item for sublist in time for item in sublist]
 
     inputs, labels, video_idx, extra_data = (

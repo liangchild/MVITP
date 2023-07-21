@@ -9,6 +9,9 @@ import re
 from PIL import Image, ImageOps, ImageEnhance, ImageChops
 import PIL
 import numpy as np
+import cv2
+from scipy.ndimage import rotate as sk_rotate
+from scipy.ndimage import  shift
 
 
 _PIL_VER = tuple([int(x) for x in PIL.__version__.split('.')[:2]])
@@ -43,37 +46,61 @@ def _check_args_tf(kwargs):
 
 def shear_x(img, factor, **kwargs):
     _check_args_tf(kwargs)
+    if type(img) == np.ndarray:
+        rows, cols, _ = img.shape
+        M = np.float32([[1, factor, 0],
+                    [0, 1, 0]])
+        return cv2.warpAffine(img, M, (cols,rows))
     return img.transform(img.size, Image.AFFINE, (1, factor, 0, 0, 1, 0), **kwargs)
 
 
 def shear_y(img, factor, **kwargs):
     _check_args_tf(kwargs)
+    if type(img) == np.ndarray:
+        rows, cols, _ = img.shape
+        M = np.float32([[1, 0, 0],
+                        [factor, 1, 0]])
+        return cv2.warpAffine(img, M, (cols,rows))
     return img.transform(img.size, Image.AFFINE, (1, 0, 0, factor, 1, 0), **kwargs)
 
 
 def translate_x_rel(img, pct, **kwargs):
+    if type(img) == np.ndarray:
+        rows, cols, _ = img.shape
+        pixels = pct * cols
+        return shift(img, [0, pixels, 0], mode='nearest')
     pixels = pct * img.size[0]
     _check_args_tf(kwargs)
     return img.transform(img.size, Image.AFFINE, (1, 0, pixels, 0, 1, 0), **kwargs)
 
 
 def translate_y_rel(img, pct, **kwargs):
+    if type(img) == np.ndarray:
+        rows, cols, _ = img.shape
+        pixels = pct * rows
+        return shift(img, [pixels, 0, 0], mode='nearest')
     pixels = pct * img.size[1]
     _check_args_tf(kwargs)
     return img.transform(img.size, Image.AFFINE, (1, 0, 0, 0, 1, pixels), **kwargs)
 
 
 def translate_x_abs(img, pixels, **kwargs):
+    if type(img) == np.ndarray:
+        return shift(img, [0, pixels, 0], mode='nearest')
     _check_args_tf(kwargs)
     return img.transform(img.size, Image.AFFINE, (1, 0, pixels, 0, 1, 0), **kwargs)
 
 
 def translate_y_abs(img, pixels, **kwargs):
+    if type(img) == np.ndarray:
+        return shift(img, [0, pixels, 0], mode='nearest')
     _check_args_tf(kwargs)
     return img.transform(img.size, Image.AFFINE, (1, 0, 0, 0, 1, pixels), **kwargs)
 
 
 def rotate(img, degrees, **kwargs):
+    if type(img) == np.ndarray:
+        return sk_rotate(img, degrees, reshape=False)
     _check_args_tf(kwargs)
     if _PIL_VER >= (5, 2):
         return img.rotate(degrees, **kwargs)
@@ -546,17 +573,17 @@ _RAND_TRANSFORMS = [
 
 
 _RAND_INCREASING_TRANSFORMS = [
-    'AutoContrast',
-    'Equalize',
-    'Invert',
+    # 'AutoContrast',
+    # 'Equalize',
+    # 'Invert',
     'Rotate',
-    'PosterizeIncreasing',
-    'SolarizeIncreasing',
-    'SolarizeAdd',
-    'ColorIncreasing',
-    'ContrastIncreasing',
-    'BrightnessIncreasing',
-    'SharpnessIncreasing',
+    # 'PosterizeIncreasing',
+    # 'SolarizeIncreasing',
+    # 'SolarizeAdd',
+    # 'ColorIncreasing',
+    # 'ContrastIncreasing',
+    # 'BrightnessIncreasing',
+    # 'SharpnessIncreasing',
     'ShearX',
     'ShearY',
     'TranslateXRel',

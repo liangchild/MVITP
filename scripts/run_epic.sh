@@ -1,11 +1,11 @@
-CUDA_VISIBLE_DEVICES=7,4,3,2,5,6 python -u /mnt/cephfs/home/alvin/wenfu/coderepo/SlowFast-main/tools/run_net.py \
-    --cfg /mnt/cephfs/home/alvin/wenfu/coderepo/SlowFast-main/configs/epick/MVITv2_B_32x3_epick.yaml \
+CUDA_VISIBLE_DEVICES=1,2,3,4 python -u /mnt/cephfs/home/alvin/jialiang/Drive-act/mvitv2/SlowFast-main/tools/run_net.py \
+    --cfg /mnt/cephfs/home/alvin/jialiang/Drive-act/mvitv2/SlowFast-main/configs/epick/MVITv2_B_32x3_epick.yaml\
     TRAIN.ENABLE True \
-    TRAIN.BATCH_SIZE 12 \
-    NUM_GPUS 6 \
+    TRAIN.BATCH_SIZE 4 \
+    NUM_GPUS 4 \
     TEST.ENABLE False \
-    MIXUP.ENABLE False \
+    MIXUP.ENABLE False  \
     SOLVER.MAX_EPOCH 50 \
-    OUTPUT_DIR /mnt/cephfs/dataset/wf_data/stts_pth/output/mvitv2_B_epic \
-    TEST.BATCH_SIZE 60 \
+    OUTPUT_DIR /mnt/cephfs/dataset/m3lab_data/jialiang/mvit/part_IRprompt_b4_drop0.3_lr4e-5 \
+    TEST.BATCH_SIZE 8 \
 

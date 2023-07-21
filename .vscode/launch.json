@@ -11,12 +11,12 @@
             "program": "${workspaceFolder}/tools/run_net.py",
             "console": "integratedTerminal",
             "env": {
-                "CUDA_VISIBLE_DEVICES": "4,1"
+                "CUDA_VISIBLE_DEVICES": "1,2"
             },
             "args": [
                 "--cfg",
-                "/mnt/cephfs/home/alvin/wenfu/coderepo/SlowFast-main/configs/epick/MVITv2_B_32x3_epick.yaml",
-                "/mnt/cephfs/home/alvin/wenfu/coderepo/SlowFast-main/configs/epick/SLOWFAST_8x8_R50_epick.yaml",
+                "/mnt/cephfs/home/alvin/jialiang/Drive-act/mvitv2/SlowFast-main/configs/epick/MVITv2_B_32x3_epick.yaml",
+                //"/mnt/cephfs/home/alvin/wenfu/coderepo/SlowFast-main/configs/epick/SLOWFAST_8x8_R50_epick.yaml",
                 "TRAIN.ENABLE",
                 "True",
                 "NUM_GPUS",
@@ -24,7 +24,7 @@
                 "TEST.ENABLE",
                 "False",
                 "OUTPUT_DIR",
-                "/mnt/cephfs/dataset/wf_data/stts_pth/output/SF8x8_R50_epick",
+                "/mnt/cephfs/dataset/m3lab_data/jialiang/mvit/debug",
                 // "TEST.BATCH_SIZE",
                 // "4",
                 // "TEST.CHECKPOINT_FILE_PATH",
@@ -36,3 +36,43 @@
         }
     ]
 }
+
+
+// {
+//     // Use IntelliSense to learn about possible attributes.
+//     // Hover to view descriptions of existing attributes.
+//     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+//     "version": "0.2.0",
+//     "configurations": [
+//         {
+//             "name": "run_net",
+//             "type": "python",
+//             "request": "launch",
+//             "program": "${workspaceFolder}/tools/run_net.py",
+//             "console": "integratedTerminal",
+//             "env": {
+//                 "CUDA_VISIBLE_DEVICES": "6,7"
+//             },
+//             "args": [
+//                 "--cfg",
+//                 "/mnt/cephfs/home/alvin/jialiang/Drive-act/mvitv2/SlowFast-main/configs/epick/MVITv2_B_32x3_epick.yaml",
+//                 //"/mnt/cephfs/home/alvin/wenfu/coderepo/SlowFast-main/configs/epick/SLOWFAST_8x8_R50_epick.yaml",
+//                 "TRAIN.ENABLE",
+//                 "False",
+//                 "NUM_GPUS",
+//                 "2",
+//                 "TEST.ENABLE",
+//                 "True",
+//                 "OUTPUT_DIR",
+//                 "/mnt/cephfs/dataset/jialiang/mvitv2/inn_NIR/test",
+//                 "TEST.BATCH_SIZE",
+//                 "4",
+//                 //"TEST.CHECKPOINT_FILE_PATH",
+//                 //"/mnt/cephfs/dataset/wf_data/stts_pth/MViTv2_B_32x3_k400_f304025456.pyth",
+//                 // "DATA.PATH_TO_DATA_DIR",
+//                 // "/mnt/cephfs/dataset/wf_data/stts_pth/k400_annotations"
+//             ],
+//             "justMyCode": false
+//         }
+//     ]
+// }

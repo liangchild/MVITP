@@ -485,7 +485,9 @@ _C.MVIT.LAYER_SCALE_INIT_VALUE = 0.0
 
 # Depth of the transformer.
 _C.MVIT.DEPTH = 16
-
+_C.MVIT.BLOCK_DEPTHS = []
+_C.MVIT.PROMPT_TYPE = None
+_C.MVIT.INPUT_MODAL = 'rgb'
 # Normalization layer for the transformer. Only layernorm is supported now.
 _C.MVIT.NORM = "layernorm"
 
@@ -917,7 +919,7 @@ _C.OUTPUT_DIR = "."
 _C.RNG_SEED = 1
 
 # Log period in iters.
-_C.LOG_PERIOD = 10
+_C.LOG_PERIOD = 20
 
 # If True, log the model info.
 _C.LOG_MODEL_INFO = True
@@ -998,6 +1000,33 @@ _C.EPICKITCHENS.TEST_SPLIT = "validation"
 
 # Use Train + Val
 _C.EPICKITCHENS.TRAIN_PLUS_VAL = False
+# -----------------------------------------------------------------------------
+# Drive_and_act Dataset options
+# -----------------------------------------------------------------------------
+_C.Drive_and_act = CfgNode()
+
+# Path to Epic-Kitchens RGB data directory
+_C.Drive_and_act.VISUAL_DATA_DIR = "/mnt/cephfs/home/alvin/jialiang/Drive-act"
+
+# Path to Epic-Kitchens Annotation directory
+_C.Drive_and_act.ANNOTATIONS_DIR = "/mnt/cephfs/home/alvin/jialiang/Drive-act"
+_C.Drive_and_act.PROMPT_DATA_DIR = None
+_C.Drive_and_act.TRAIN_MODE = 'pretrain_rgb'
+_C.Drive_and_act.EVENT_PATH =None
+# List of EPIC-100 TRAIN files
+_C.Drive_and_act.TRAIN_LIST = "Drive_train.txt" # EPIC_100_train.pkl
+
+# List of EPIC-100 VAL files
+_C.Drive_and_act.VAL_LIST = "Drive_val.txt" # EPIC_100_validation.pkl
+
+# List of EPIC-100 TEST files
+_C.Drive_and_act.TEST_LIST = "Drive_test.txt"
+
+# Testing split
+_C.Drive_and_act.TEST_SPLIT = "validation"
+
+# Use Train + Val
+_C.Drive_and_act.TRAIN_PLUS_VAL = False
 
 # -----------------------------------------------------------------------------
 # AVA Dataset options

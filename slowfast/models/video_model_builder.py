@@ -107,8 +107,70 @@ _POOL1 = {
     "slowfast": [[1, 1, 1], [1, 1, 1]],
     "x3d": [[1, 1, 1]],
 }
+def token2feature(tokens,twh):
+    B,L,D=tokens.shape
+    T,W,H=twh
+    x = tokens.permute(0, 2, 1).view(B, D,T,W, H).contiguous()
+    return x
+def feature2token(x,twh):
+    B,C,T,W,H = x.shape
+    L = T*W*H
+    tokens = x.view(B, C, L).permute(0, 2, 1).contiguous()
+    return tokens
+class Prompt_block(nn.Module, ):
+    def __init__(self, inplanes=None, hide_channel=None, smooth=False,i_layer=None):
+        super(Prompt_block, self).__init__()
 
+        self.conv0_0 = nn.Conv3d(in_channels=inplanes, out_channels=hide_channel, kernel_size=1, stride=1, padding=0)
+        #self.conv0_1 = nn.Conv3d(in_channels=inplanes//2, out_channels=hide_channel, kernel_size=(1,3,3), stride=(1,2,2), padding=(0,1,1))
+        if i_layer ==0:
+            self.conv0_1 = nn.Conv3d(in_channels=inplanes, out_channels=hide_channel, kernel_size=1, stride=1, padding=0)
+        else:
+            self.conv0_1 = nn.Conv3d(in_channels=inplanes//2, out_channels=hide_channel, kernel_size=(1,1,1), stride=(1,2,2), padding=(0,0,0))
+        self.conv1x1 = nn.Conv3d(in_channels=hide_channel, out_channels=inplanes, kernel_size=1, stride=1, padding=0)
+        self.fovea = Fovea(smooth=smooth)
 
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+    def forward(self, x,prompt):
+        """ Forward pass with input x. """
+        B, C,T, W, H = x.shape
+        x0 = x.contiguous()
+        x0 = self.conv0_0(x0)
+        x1 = prompt.contiguous()
+        x1 = self.conv0_1(x1)
+        x0 = self.fovea(x0) + x1
+
+        return self.conv1x1(x0)
+
+class Fovea(nn.Module):
+
+    def __init__(self, smooth=False):
+        super().__init__()
+
+        self.softmax = nn.Softmax(dim=-1)
+
+        self.smooth = smooth
+        if smooth:
+            self.smooth = nn.Parameter(torch.zeros(1) + 10.0)
+
+    def forward(self, x):
+        '''
+            x: [batch_size, features, k]
+        '''
+        b, c, t,h, w = x.shape
+        x = x.contiguous().view(b, c,t, h*w)
+
+        if self.smooth:
+            mask = self.softmax(x * self.smooth)
+        else:
+            mask = self.softmax(x)
+        output = mask * x
+        output = output.contiguous().view(b, c,t, h, w)
+
+        return output
 class FuseFastToSlow(nn.Module):
     """
     Fuses the information from the Fast pathway to the Slow pathway. Given the
@@ -918,6 +980,9 @@ class MViT(nn.Module):
         qkv_bias = cfg.MVIT.QKV_BIAS
         self.drop_rate = cfg.MVIT.DROPOUT_RATE
         depth = cfg.MVIT.DEPTH
+        self.prompt_type = cfg.MVIT.PROMPT_TYPE
+        self.block_depths = cfg.MVIT.BLOCK_DEPTHS
+        self.input_modal = cfg.MVIT.INPUT_MODAL
         drop_path_rate = cfg.MVIT.DROPPATH_RATE
         layer_scale_init_value = cfg.MVIT.LAYER_SCALE_INIT_VALUE
         head_init_scale = cfg.MVIT.HEAD_INIT_SCALE
@@ -943,7 +1008,17 @@ class MViT(nn.Module):
             padding=cfg.MVIT.PATCH_PADDING,
             conv_2d=self.use_2d_patch,
         )
-
+        if self.prompt_type in ['vipt_shaw', 'vipt_deep']:
+            self.prompt_patch_embed = stem_helper.PatchEmbed(
+                dim_in=in_chans,
+                dim_out=embed_dim,
+                kernel=cfg.MVIT.PATCH_KERNEL,
+                stride=cfg.MVIT.PATCH_STRIDE,
+                padding=cfg.MVIT.PATCH_PADDING,
+                conv_2d=self.use_2d_patch,
+            )
+            prompt_blocks = []
+            prompt_norms = []
         if cfg.MODEL.ACT_CHECKPOINT:
             self.patch_embed = checkpoint_wrapper(self.patch_embed)
         self.input_dims = [temporal_size, spatial_size, spatial_size]
@@ -1086,6 +1161,10 @@ class MViT(nn.Module):
                         dim_mul[i + 1],
                         divisor=round_width(num_heads, head_mul[i + 1]),
                     )
+                if self.prompt_type in ['vipt_shallow', 'vipt_deep']:
+                    if i in self.block_depths:
+                        prompt_blocks.append(Prompt_block(inplanes=embed_dim, hide_channel=8, smooth=True,i_layer=i))
+                        prompt_norms.append(norm_layer(embed_dim))
                 attention_block = MultiScaleBlock(
                     dim=embed_dim,
                     dim_out=dim_out,
@@ -1123,7 +1202,9 @@ class MViT(nn.Module):
                 embed_dim = dim_out
 
             self.norm = norm_layer(embed_dim)
-
+        if self.prompt_type in ['vipt_shallow', 'vipt_deep']:
+            self.prompt_blocks = nn.Sequential(*prompt_blocks)
+            self.prompt_norms = nn.Sequential(*prompt_norms)
         if self.enable_detection:
             self.head = head_helper.ResNetRoIHead(
                 dim_in=[embed_dim],
@@ -1191,6 +1272,15 @@ class MViT(nn.Module):
         # self.head.projection.bias.data.mul_(head_init_scale)
 
         self.feat_size, self.feat_stride = calc_mvit_feature_geometry(cfg)
+        if self.prompt_type in ['vipt_shallow', 'vipt_deep']:
+            for param in self.parameters():
+                param.requires_grad = False
+            for param in self.prompt_patch_embed.parameters():
+                param.requires_grad = True
+            for param in self.prompt_blocks.parameters():
+                param.requires_grad = True
+            for param in self.prompt_norms.parameters():
+                param.requires_grad = True
 
     def _init_weights(self, m):
         if isinstance(m, (nn.Linear, nn.Conv2d, nn.Conv3d)):
@@ -1276,9 +1366,19 @@ class MViT(nn.Module):
 
         return x
 
-    def forward(self, x, bboxes=None, return_attn=False):
-        x = x[0]
-        x, bcthw = self.patch_embed(x)
+    def forward(self, x,bboxes=None, return_attn=False):
+        if len(x) > 1:
+            y=  x[1]
+            x = x[0]
+        else:
+            x = x[0]
+            y=None
+        if y is not None:
+            y, bcthw = self.prompt_patch_embed(y)
+        if self.input_modal == 'event':
+            x, bcthw = self.prompt_patch_embed(x)
+        else:
+            x, bcthw = self.patch_embed(x)
         bcthw = list(bcthw)
         if len(bcthw) == 4:  # Fix bcthw in case of 4D tensor
             bcthw.insert(2, torch.tensor(self.T))
@@ -1289,7 +1389,8 @@ class MViT(nn.Module):
         s = 1 if self.cls_embed_on else 0
         if self.use_fixed_sincos_pos:
             x += self.pos_embed[:, s:, :]  # s: on/off cls token
-
+            if y is not None:
+                y += self.pos_embed[:, s:, :]
         if self.cls_embed_on:
             cls_tokens = self.cls_token.expand(
                 B, -1, -1
@@ -1310,14 +1411,21 @@ class MViT(nn.Module):
                 if self.cls_embed_on:
                     pos_embed = torch.cat([self.pos_embed_class, pos_embed], 1)
                 x += self._get_pos_embed(pos_embed, bcthw)
+                if y is not None:
+                    y += self._get_pos_embed(pos_embed, bcthw)
             else:
                 x += self._get_pos_embed(self.pos_embed, bcthw)
+                if y is not None:
+                    y += self._get_pos_embed(pos_embed, bcthw)
 
         if self.drop_rate:
             x = self.pos_drop(x)
-
+            if y is not None:
+                y = self.pos_drop(y)
         if self.norm_stem:
             x = self.norm_stem(x)
+            if y is not None:
+                y = self.norm_stem(y)
 
         thw = [T, H, W]
 
@@ -1325,8 +1433,29 @@ class MViT(nn.Module):
             x = self._forward_reversible(x)
 
         else:
-            for blk in self.blocks:
+            for i,blk in enumerate(self.blocks):
+                if y is not None:
+                    if i in self.block_depths :
+                        i_block=self.block_depths.index(i)
+                        if i_block == 0:
+                            x_token = x[:, 1:, :]
+                            x_cls = x[:, :1, :] 
+                            x_feat = token2feature(self.prompt_norms[0](x_token),thw)
+                            y = token2feature(self.prompt_norms[0](y),thw )
+                            x_feat = self.prompt_blocks[0](x_feat,y)
+                        else:
+                            x_token = x[:, 1:, :]
+                            x_cls = x[:, :1, :]
+                            x_feat = token2feature(self.prompt_norms[i_block](x_token),thw)
+                            x_prompted = token2feature(self.prompt_norms[i_block-1](x_prompted),last_thw)
+                            x_feat = self.prompt_blocks[i_block](x_feat,x_prompted)
+                        x_feat = feature2token(x_feat,thw)
+                        x_prompted =  x_feat
+                        x_token = x_token + x_feat
+                        x = torch.cat([x_cls, x_token], dim=1)
+                        last_thw = thw
                 x, thw = blk(x, thw)
+
 
             if self.enable_detection:
                 assert not self.enable_rev

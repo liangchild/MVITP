@@ -1,11 +1,11 @@
 TRAIN:
-  ENABLE: False
-  DATASET: Epickitchens
-  BATCH_SIZE: 24
-  EVAL_PERIOD: 10
-  CHECKPOINT_PERIOD: 10
+  ENABLE: True
+  DATASET: Drive_and_act
+  BATCH_SIZE: 2
+  EVAL_PERIOD: 1
+  CHECKPOINT_PERIOD: 5
   AUTO_RESUME: True
-  CHECKPOINT_FILE_PATH: /mnt/cephfs/dataset/wf_data/stts_pth/MViTv2_B_32x3_k400_f304025456.pyth
+  CHECKPOINT_FILE_PATH: /mnt/cephfs/dataset/m3lab_data/jialiang/mvit/part_RGB/checkpoints/checkpoint_epoch_00025.pyth #/mnt/cephfs/dataset/m3lab_data/wf_data/stts_pth/MViTv2_B_32x3_k400_f304025456.pyth #/mnt/cephfs/dataset/m3lab_data/jialiang/mvit/part_RGB/checkpoints/checkpoint_epoch_00025.pyth #
 DATA:
   USE_OFFSET_SAMPLING: True
   DECODING_BACKEND: torchvision
@@ -21,18 +21,24 @@ DATA:
   TRAIN_JITTER_SCALES_RELATIVE: [0.08, 1.0]
   TRAIN_JITTER_ASPECT_RELATIVE: [0.75, 1.3333]
   COLORJITTER: False  # new
-EPICKITCHENS:
-  VISUAL_DATA_DIR: /mnt/cephfs/dataset/EPIC-KITCHENS-100/new/EPIC-KITCHENS
-  ANNOTATIONS_DIR: /mnt/cephfs/home/alvin/wenfu/processing
-  TRAIN_LIST: epic_p08_train_8action.pkl
-  VAL_LIST: epic_p08_val_8action.pkl
-  TEST_LIST: epic_p08_val_8action.pkl
+Drive_and_act:
+  VISUAL_DATA_DIR: /mnt/cephfs/dataset/m3lab_data/Drive-act-event/label
+  ANNOTATIONS_DIR: /mnt/cephfs/dataset/m3lab_data/Drive-act-event/label
+  PROMPT_DATA_DIR: /mnt/cephfs/dataset/m3lab_data/Drive-act-event/label/part-kinect_ir
+  EVENT_PATH: /mnt/cephfs/dataset/Drive-Act-dataset/a-column-co-driver/kinect_ir #/mnt/cephfs/dataset/Drive-Act-dataset/a-column-co-driver/kinect_ir,/mnt/cephfs/dataset/m3lab_data/Drive-act-event
+  TRAIN_MODE: prompt_fintuning #prompt_fintuning ,pretrain_event,pretrain_rgb
+  TRAIN_LIST: part_split0_train.txt
+  VAL_LIST: part_split0_val.txt
+  TEST_LIST: part_split0_test.txt
 MVIT:
   ZERO_DECAY_POS_CLS: False
   USE_ABS_POS: False
   REL_POS_SPATIAL: True
   REL_POS_TEMPORAL: True
   DEPTH: 24
+  BLOCK_DEPTHS: [0, 3, 6, 22] #[0, 3, 6, 22] ,None
+  PROMPT_TYPE: vipt_deep #vipt_deep  None
+  INPUT_MODAL: RGBIR                #EVENT,RGB,RGBE,RGBIR,IR
   NUM_HEADS: 1
   EMBED_DIM: 96
   PATCH_KERNEL: (3, 7, 7)
@@ -77,7 +83,7 @@ SOLVER:
   COSINE_AFTER_WARMUP: True
   COSINE_END_LR: 1e-6
   WARMUP_START_LR: 1e-6
-  WARMUP_EPOCHS: 30.0
+  WARMUP_EPOCHS: 15.0
   LR_POLICY: cosine
   MAX_EPOCH: 200
   MOMENTUM: 0.9
@@ -85,24 +91,24 @@ SOLVER:
   OPTIMIZING_METHOD: adamw
   COSINE_AFTER_WARMUP: True
 MODEL:
-  NUM_CLASSES: [8, 116]
+  NUM_CLASSES: 34
   ARCH: mvit
   MODEL_NAME: MViT
   LOSS_FUNC: cross_entropy # soft_cross_entropy
   DROPOUT_RATE: 0.5
 TEST:
   ENABLE: False
-  DATASET: Epickitchens
-  BATCH_SIZE: 64
+  DATASET: Drive_and_act
+  BATCH_SIZE: 2
   NUM_SPATIAL_CROPS: 1
   NUM_ENSEMBLE_VIEWS: 5
-  CHECKPOINT_FILE_PATH: /mnt/cephfs/dataset/wf_data/stts_pth/MViTv2_B_32x3_k400_f304025456.pyth
+  CHECKPOINT_FILE_PATH: /mnt/cephfs/dataset/m3lab_data/jialiang/mvit/part_prompt_b4_drop0.3_freezelr4e-5/checkpoints/checkpoint_epoch_00029.pyth
 DATA_LOADER:
   NUM_WORKERS: 8
   PIN_MEMORY: True
 NUM_GPUS: 8
 NUM_SHARDS: 1
 RNG_SEED: 0
-OUTPUT_DIR: /mnt/cephfs/dataset/wf_data/stts_pth/output/mvitv2_B_epic
+OUTPUT_DIR:  /mnt/cephfs/dataset/m3lab_data/jialiang/mvit/debug
 TENSORBOARD:
   ENABLE: True

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
-
+import copy
 import numpy as np
 import random
 import os
@@ -23,7 +23,7 @@ logger = logging.get_logger(__name__)
 
 
 @DATASET_REGISTRY.register()
-class Epickitchens(torch.utils.data.Dataset):
+class Drive_and_act(torch.utils.data.Dataset):
 
     def __init__(self, cfg, mode):
 
@@ -56,17 +56,26 @@ class Epickitchens(torch.utils.data.Dataset):
         """
         if self.mode == "train":
             path_annotations_pickle = [
-                os.path.join(self.cfg.EPICKITCHENS.ANNOTATIONS_DIR, self.cfg.EPICKITCHENS.TRAIN_LIST)]
+                os.path.join(self.cfg.Drive_and_act.ANNOTATIONS_DIR, self.cfg.Drive_and_act.TRAIN_LIST)]
+            if self.cfg.MVIT.INPUT_MODAL == 'RGBIR':
+                prompt_path_annotations_pickle = [
+                    os.path.join(self.cfg.Drive_and_act.PROMPT_DATA_DIR, self.cfg.Drive_and_act.TRAIN_LIST)]
         elif self.mode == "val":
             path_annotations_pickle = [
-                os.path.join(self.cfg.EPICKITCHENS.ANNOTATIONS_DIR, self.cfg.EPICKITCHENS.VAL_LIST)]
+                os.path.join(self.cfg.Drive_and_act.ANNOTATIONS_DIR, self.cfg.Drive_and_act.VAL_LIST)]
+            if self.cfg.MVIT.INPUT_MODAL == 'RGBIR':
+                prompt_path_annotations_pickle = [
+                    os.path.join(self.cfg.Drive_and_act.PROMPT_DATA_DIR, self.cfg.Drive_and_act.VAL_LIST)]
         elif self.mode == "test":
             path_annotations_pickle = [
-                os.path.join(self.cfg.EPICKITCHENS.ANNOTATIONS_DIR, self.cfg.EPICKITCHENS.TEST_LIST)]
+                os.path.join(self.cfg.Drive_and_act.ANNOTATIONS_DIR, self.cfg.Drive_and_act.TEST_LIST)]
+            if self.cfg.MVIT.INPUT_MODAL == 'RGBIR':
+                prompt_path_annotations_pickle = [
+                    os.path.join(self.cfg.Drive_and_act.PROMPT_DATA_DIR, self.cfg.Drive_and_act.TEST_LIST)]
         else:
             path_annotations_pickle = [
-                os.path.join(self.cfg.EPICKITCHENS.ANNOTATIONS_DIR, file)
-                    for file in [self.cfg.EPICKITCHENS.TRAIN_LIST, self.cfg.EPICKITCHENS.VAL_LIST]]
+                os.path.join(self.cfg.Drive_and_act.ANNOTATIONS_DIR, file)
+                    for file in [self.cfg.Drive_and_act.TRAIN_LIST, self.cfg.Drive_and_act.VAL_LIST]]
 
         for file in path_annotations_pickle:
             assert os.path.exists(file), "{} dir not found".format(
@@ -74,19 +83,47 @@ class Epickitchens(torch.utils.data.Dataset):
             )
 
         self._video_records = []
-        self._spatial_temporal_idx = []
+        self._prompt_records = []
+        if prompt_path_annotations_pickle is not None:
+            for file in prompt_path_annotations_pickle:
+                with open(file, 'r') as fin:
+                    for line in fin:
+                        line_split = line.strip().split()
+                        video_info = {}
+                        idx = 0
+                        # idx for frame_dir
+                        frame_dir = line_split[idx]
+                        video_info['frame_dir'] = frame_dir
+                        idx += 1
+                        video_info['offset'] = int(line_split[idx])
+                        video_info['total_frames'] = int(line_split[idx + 1])
+                        idx += 2
+                        label = [int(x) for x in line_split[idx:]]
+                        video_info['label'] = label[0]
+                        self._prompt_records.append(video_info)
         for file in path_annotations_pickle:
-            for tup in pd.read_pickle(file).iterrows():
-                for idx in range(self._num_clips):
-                    self._video_records.append(EpicKitchensVideoRecord(tup))
-                    self._spatial_temporal_idx.append(idx)
+            with open(file, 'r') as fin:
+                for line in fin:
+                    line_split = line.strip().split()
+                    video_info = {}
+                    idx = 0
+                    # idx for frame_dir
+                    frame_dir = line_split[idx]
+                    video_info['frame_dir'] = frame_dir
+                    idx += 1
+                    video_info['offset'] = int(line_split[idx])
+                    video_info['total_frames'] = int(line_split[idx + 1])
+                    idx += 2
+                    label = [int(x) for x in line_split[idx:]]
+                    video_info['label'] = label[0]
+                    self._video_records.append(video_info)
         assert (
                 len(self._video_records) > 0
-        ), "Failed to load EPIC-KITCHENS split {} from {}".format(
+        ), "Failed to load Drive-act split {} from {}".format(
             self.mode, path_annotations_pickle
         )
         logger.info(
-            "Constructing epickitchens dataloader (size: {}) from {}".format(
+            "Constructing Drive_and_act dataloader (size: {}) from {}".format(
                 len(self._video_records), path_annotations_pickle
             )
         )
@@ -106,104 +143,241 @@ class Epickitchens(torch.utils.data.Dataset):
                 decoded, then return the index of the video. If not, return the
                 index of the video replacement that can be decoded.
         """
-        if self.mode in ["train", "val", "train+val"]:
-            # -1 indicates random sampling.
-            temporal_sample_index = -1
-            spatial_sample_index = -1
-            min_scale = self.cfg.DATA.TRAIN_JITTER_SCALES[0]
-            max_scale = self.cfg.DATA.TRAIN_JITTER_SCALES[1]
-            crop_size = self.cfg.DATA.TRAIN_CROP_SIZE
-        elif self.mode in ["test"]:
-            temporal_sample_index = (
-                self._spatial_temporal_idx[index]
-                // self.cfg.TEST.NUM_SPATIAL_CROPS
-            )
-            # spatial_sample_index is in [0, 1, 2]. Corresponding to left,
-            # center, or right if width is larger than height, and top, middle,
-            # or bottom if height is larger than width.
-            if self.cfg.TEST.NUM_SPATIAL_CROPS == 3:
-                spatial_sample_index = (
-                    self._spatial_temporal_idx[index]
-                    % self.cfg.TEST.NUM_SPATIAL_CROPS
-                )
-            elif self.cfg.TEST.NUM_SPATIAL_CROPS == 1:
-                spatial_sample_index = 1
-            min_scale, max_scale, crop_size = [self.cfg.DATA.TEST_CROP_SIZE] * 3
-            # The testing is deterministic and no jitter should be performed.
-            # min_scale, max_scale, and crop_size are expect to be the same.
-            assert len({min_scale, max_scale, crop_size}) == 1
-        else:
-            raise NotImplementedError(
-                "Does not support {} mode".format(self.mode)
-            )
-        # frames [T,256,456,3]
-        frames = pack_frames_to_video_clip(self.cfg, self._video_records[index], temporal_sample_index, target_fps=self.target_fps)
-
-        if self.cfg.DATA.USE_RAND_AUGMENT and self.mode in ["train"]:
-            # Transform to PIL Image
-            frames = [transforms.ToPILImage()(frame.squeeze().numpy()) for frame in frames]
-
-            # Perform RandAugment
-            img_size_min = crop_size
-            auto_augment_desc = "rand-m15-mstd0.5-inc1"
-            aa_params = dict(
-                translate_const=int(img_size_min * 0.45),
-                img_mean=tuple([min(255, round(255 * x)) for x in self.cfg.DATA.MEAN]),
-            )
-            seed = random.randint(0, 100000000)
-            frames = [autoaugment.rand_augment_transform(
-                auto_augment_desc, aa_params, seed)(frame) for frame in frames]
-
-            # To Tensor: T H W C
-            frames = [torch.tensor(np.array(frame)) for frame in frames]
-            frames = torch.stack(frames)
-        
-        # Perform color normalization.
-        frames = utils.tensor_normalize(
-            frames, self.cfg.DATA.MEAN, self.cfg.DATA.STD
-        )
-
-        # T H W C -> C T H W.
-        frames = frames.permute(3, 0, 1, 2)
-
-        # Perform data augmentation.
-        use_random_resize_crop = self.cfg.DATA.USE_RANDOM_RESIZE_CROPS
-        if use_random_resize_crop:
-            if self.mode in ["train", "val"]:
-                frames = transform.random_resize_crop_video(frames, crop_size, interpolation_mode="bilinear")
-                frames, _ = transform.horizontal_flip(0.5, frames)
-            else:
+        if self.cfg.Drive_and_act.TRAIN_MODE == 'pretrain_event':
+            inputs=list()
+            if self.mode in ["train", "val", "train+val"]:
+                # -1 indicates random sampling.
+                temporal_sample_index = -1
+                spatial_sample_index = -1
+                min_scale = self.cfg.DATA.TRAIN_JITTER_SCALES[0]
+                max_scale = self.cfg.DATA.TRAIN_JITTER_SCALES[1]
+                crop_size = self.cfg.DATA.TRAIN_CROP_SIZE
+            elif self.mode in ["test"]:
+                # temporal_sample_index = (
+                #     self._video_records[index]
+                #     // self.cfg.TEST.NUM_SPATIAL_CROPS
+                # )
+                # spatial_sample_index is in [0, 1, 2]. Corresponding to left,
+                # center, or right if width is larger than height, and top, middle,
+                # or bottom if height is larger than width.
+                if self.cfg.TEST.NUM_SPATIAL_CROPS == 3:
+                    spatial_sample_index = 3
+                    # spatial_sample_index = (
+                    #     self._video_records[index]
+                    #     % self.cfg.TEST.NUM_SPATIAL_CROPS
+                    # )
+                elif self.cfg.TEST.NUM_SPATIAL_CROPS == 1:
+                    spatial_sample_index = 1
+                min_scale, max_scale, crop_size = [self.cfg.DATA.TEST_CROP_SIZE] * 3
+                # The testing is deterministic and no jitter should be performed.
+                # min_scale, max_scale, and crop_size are expect to be the same.
                 assert len({min_scale, max_scale, crop_size}) == 1
-                frames, _ = transform.random_short_side_scale_jitter(
-                    frames, min_scale, max_scale
+            else:
+                raise NotImplementedError(
+                    "Does not support {} mode".format(self.mode)
                 )
-                frames, _ = transform.uniform_crop(frames, crop_size, spatial_sample_index)
-        else:
-            # Perform data augmentation.
-            frames = utils.spatial_sampling(
-                frames,
-                spatial_idx=spatial_sample_index,
-                min_scale=min_scale,
-                max_scale=max_scale,
-                crop_size=crop_size,
-                random_horizontal_flip=self.cfg.DATA.RANDOM_FLIP,
-                inverse_uniform_sampling=self.cfg.DATA.INV_UNIFORM_SAMPLE,
+            results = copy.deepcopy(self._video_records[index])
+            results['event_tmpl']='event{:06d}.npy'
+            results['event_path'] = self.cfg.Drive_and_act.EVENT_PATH
+            events = pack_frames_to_video_clip(self.cfg, results,train_mode=self.cfg.Drive_and_act.TRAIN_MODE, target_fps=self.target_fps,input_modal=self.cfg.MVIT.INPUT_MODAL)
+            if self.cfg.DATA.USE_RAND_AUGMENT and self.mode in ["train"]:
+                img_size_min = crop_size
+                auto_augment_desc = "rand-m15-mstd0.5-inc1"
+                aa_params = dict(
+                    translate_const=int(img_size_min * 0.45),
+                    img_mean=tuple([min(255, round(255 * x)) for x in self.cfg.DATA.MEAN]),
+                )
+                seed = random.randint(0, 100000000)
+                events = [autoaugment.rand_augment_transform(
+                    auto_augment_desc, aa_params, seed)(event) for event in events]
+            events = [torch.tensor(np.array(event)) for event in events]
+            events = torch.stack(events)
+            events = utils.tensor_normalize(
+                events, self.cfg.DATA.MEAN, self.cfg.DATA.STD
             )
-        
-        # T H W C -> T C H W.
-        if self.mode in ["train", "val"]:
-            frames = frames.permute(1, 0, 2, 3) # C T H W -> T C H W
-            frames = utils.frames_augmentation(
-                frames,
-                colorjitter=self.cfg.DATA.COLORJITTER,
-                use_grayscale=self.cfg.DATA.GRAYSCALE,
-                use_gaussian=self.cfg.DATA.GAUSSIAN
+            # T H W C -> C T H W.
+            events = events.permute(3, 0, 1, 2)
+            
+            # Perform data augmentation.
+            use_random_resize_crop = self.cfg.DATA.USE_RANDOM_RESIZE_CROPS
+            if use_random_resize_crop:
+                if self.mode in ["train", "val"]:
+                    frames = transform.random_resize_crop_video(frames, crop_size, interpolation_mode="bilinear")
+                    frames, _ = transform.horizontal_flip(0.5, frames)
+                else:
+                    assert len({min_scale, max_scale, crop_size}) == 1
+                    frames, _ = transform.random_short_side_scale_jitter(
+                        frames, min_scale, max_scale
+                    )
+                    frames, _ = transform.uniform_crop(frames, crop_size, spatial_sample_index)
+            else:
+                # Perform data augmentation.
+                events = utils.spatial_sampling(
+                    events,
+                    spatial_idx=spatial_sample_index,
+                    min_scale=min_scale,
+                    max_scale=max_scale,
+                    crop_size=crop_size,
+                    random_horizontal_flip=self.cfg.DATA.RANDOM_FLIP,
+                    inverse_uniform_sampling=self.cfg.DATA.INV_UNIFORM_SAMPLE,
+                )     
+            # T H W C -> T C H W.
+            if self.mode in ["train", "val"]:
+                events = events.permute(1, 0, 2, 3) # C T H W -> T C H W
+                events = utils.frames_augmentation(
+                    events,
+                    colorjitter=None,
+                    use_grayscale=None,
+                    use_gaussian=None
+                )
+            label = self._video_records[index]['label']
+            inputs.append(events)
+            metadata = {}
+            return inputs, label, index, metadata
+        else:
+            if self.mode in ["train", "val", "train+val"]:
+                # -1 indicates random sampling.
+                temporal_sample_index = -1
+                spatial_sample_index = -1
+                min_scale = self.cfg.DATA.TRAIN_JITTER_SCALES[0]
+                max_scale = self.cfg.DATA.TRAIN_JITTER_SCALES[1]
+                crop_size = self.cfg.DATA.TRAIN_CROP_SIZE
+            elif self.mode in ["test"]:
+                # temporal_sample_index = (
+                #     self._video_records[index]
+                #     // self.cfg.TEST.NUM_SPATIAL_CROPS
+                # )
+                # spatial_sample_index is in [0, 1, 2]. Corresponding to left,
+                # center, or right if width is larger than height, and top, middle,
+                # or bottom if height is larger than width.
+                if self.cfg.TEST.NUM_SPATIAL_CROPS == 3:
+                    spatial_sample_index = 3
+                    # spatial_sample_index = (
+                    #     self._video_records[index]
+                    #     % self.cfg.TEST.NUM_SPATIAL_CROPS
+                    # )
+                elif self.cfg.TEST.NUM_SPATIAL_CROPS == 1:
+                    spatial_sample_index = 1
+                min_scale, max_scale, crop_size = [self.cfg.DATA.TEST_CROP_SIZE] * 3
+                # The testing is deterministic and no jitter should be performed.
+                # min_scale, max_scale, and crop_size are expect to be the same.
+                assert len({min_scale, max_scale, crop_size}) == 1
+            else:
+                raise NotImplementedError(
+                    "Does not support {} mode".format(self.mode)
+                )
+            results = copy.deepcopy(self._video_records[index])
+            prompt_results = copy.deepcopy(self._prompt_records[index])
+            if self.cfg.Drive_and_act.EVENT_PATH is not None:
+                if self.cfg.MVIT.INPUT_MODAL== 'RGBIR':
+                    prompt_results['prompt_tmpl']='img_{:05d}.jpg' #'event{:06d}.npy'
+                    frames,prompts = pack_frames_to_video_clip(self.cfg, results,train_mode=self.cfg.Drive_and_act.TRAIN_MODE, target_fps=self.target_fps,input_modal=self.cfg.MVIT.INPUT_MODAL,prompt_record=prompt_results)
+                else:
+                    results['event_tmpl']='event{:06d}.npy' #'event{:06d}.npy'
+                    results['event_path'] = self.cfg.Drive_and_act.EVENT_PATH
+                    frames,prompts = pack_frames_to_video_clip(self.cfg, results,train_mode=self.cfg.Drive_and_act.TRAIN_MODE, target_fps=self.target_fps,input_modal=self.cfg.MVIT.INPUT_MODAL)
+            # frames [T,256,456,3]
+            else:
+                frames = pack_frames_to_video_clip(self.cfg, results,train_mode=self.cfg.Drive_and_act.TRAIN_MODE,target_fps=self.target_fps,input_modal=self.cfg.MVIT.INPUT_MODAL)
+
+            if self.cfg.DATA.USE_RAND_AUGMENT and self.mode in ["train"]:
+                # Transform to PIL Image
+                frames = [transforms.ToPILImage()(frame.squeeze().numpy()) for frame in frames]
+
+                # Perform RandAugment
+                img_size_min = crop_size
+                auto_augment_desc = "rand-m15-mstd0.5-inc1"
+                aa_params = dict(
+                    translate_const=int(img_size_min * 0.45),
+                    img_mean=tuple([min(255, round(255 * x)) for x in self.cfg.DATA.MEAN]),
+                )
+                seed = random.randint(0, 100000000)
+                frames = [autoaugment.rand_augment_transform(
+                    auto_augment_desc, aa_params, seed)(frame) for frame in frames]
+                if self.cfg.Drive_and_act.EVENT_PATH is not None:
+                    if self.cfg.MVIT.INPUT_MODAL== 'RGBIR':
+                        prompts = [prompt.squeeze().numpy() for prompt in prompts]
+                        prompts = [autoaugment.rand_augment_transform(
+                            auto_augment_desc, aa_params, seed)(prompt) for prompt in prompts]
+                    else:
+                        prompts = [autoaugment.rand_augment_transform(
+                            auto_augment_desc, aa_params, seed)(prompt) for prompt in prompts]
+                # To Tensor: T H W C
+                frames = [torch.tensor(np.array(frame)) for frame in frames]
+                frames = torch.stack(frames)
+            if self.cfg.Drive_and_act.EVENT_PATH is not None:
+                prompts = [torch.tensor(np.array(prompt)) for prompt in prompts]
+                prompts = torch.stack(prompts)
+                prompts = utils.tensor_normalize(
+                    prompts, self.cfg.DATA.MEAN, self.cfg.DATA.STD
+                )
+                prompts = prompts.permute(3, 0, 1, 2)
+            # Perform color normalization.
+            frames = utils.tensor_normalize(
+                frames, self.cfg.DATA.MEAN, self.cfg.DATA.STD
             )
 
-        label = self._video_records[index].label
-        frames = utils.pack_pathway_output(self.cfg, frames)
-        metadata = self._video_records[index].metadata
-        return frames, label, index, metadata
+            # T H W C -> C T H W.
+            frames = frames.permute(3, 0, 1, 2)
+
+            # Perform data augmentation.
+            use_random_resize_crop = self.cfg.DATA.USE_RANDOM_RESIZE_CROPS
+            if use_random_resize_crop:
+                if self.mode in ["train", "val"]:
+                    frames = transform.random_resize_crop_video(frames, crop_size, interpolation_mode="bilinear")
+                    frames, _ = transform.horizontal_flip(0.5, frames)
+                else:
+                    assert len({min_scale, max_scale, crop_size}) == 1
+                    frames, _ = transform.random_short_side_scale_jitter(
+                        frames, min_scale, max_scale
+                    )
+                    frames, _ = transform.uniform_crop(frames, crop_size, spatial_sample_index)
+            else:
+                # Perform data augmentation.
+                frames = utils.spatial_sampling(
+                    frames,
+                    spatial_idx=spatial_sample_index,
+                    min_scale=min_scale,
+                    max_scale=max_scale,
+                    crop_size=crop_size,
+                    random_horizontal_flip=self.cfg.DATA.RANDOM_FLIP,
+                    inverse_uniform_sampling=self.cfg.DATA.INV_UNIFORM_SAMPLE,
+                )
+                if self.cfg.Drive_and_act.EVENT_PATH is not None:
+                    prompts = utils.spatial_sampling(
+                        prompts,
+                        spatial_idx=spatial_sample_index,
+                        min_scale=min_scale,
+                        max_scale=max_scale,
+                        crop_size=crop_size,
+                        random_horizontal_flip=self.cfg.DATA.RANDOM_FLIP,
+                        inverse_uniform_sampling=self.cfg.DATA.INV_UNIFORM_SAMPLE,
+                    )     
+            # T H W C -> T C H W.
+            if self.mode in ["train", "val"]:
+                frames = frames.permute(1, 0, 2, 3) # C T H W -> T C H W
+                frames = utils.frames_augmentation(
+                    frames,
+                    colorjitter=self.cfg.DATA.COLORJITTER,
+                    use_grayscale=self.cfg.DATA.GRAYSCALE,
+                    use_gaussian=self.cfg.DATA.GAUSSIAN
+                )
+                if self.cfg.Drive_and_act.EVENT_PATH is not None:
+                    prompts = prompts.permute(1, 0, 2, 3) # C T H W -> T C H W
+                    prompts = utils.frames_augmentation(
+                        prompts,
+                        colorjitter=self.cfg.DATA.COLORJITTER,
+                        use_grayscale=self.cfg.DATA.GRAYSCALE,
+                        use_gaussian=self.cfg.DATA.GAUSSIAN
+                    )
+            label = self._video_records[index]['label']
+            frames = utils.pack_pathway_output(self.cfg, frames)
+            if self.cfg.Drive_and_act.EVENT_PATH is not None:
+                frames.append(prompts)
+            #prompts = utils.pack_pathway_output(self.cfg, prompts)
+
+            metadata = {}
+            return frames, label, index, metadata
 
 
     def __len__(self):

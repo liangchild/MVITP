@@ -26,7 +26,6 @@ from slowfast.models.contrastive import (
 )
 from slowfast.utils.meters import AVAMeter, EpochTimer, TrainMeter, ValMeter, EPICTrainMeter, EPICValMeter
 from slowfast.utils.multigrid import MultigridSchedule
-
 logger = logging.get_logger(__name__)
 
 
@@ -74,12 +73,11 @@ def train_epoch(
     # Explicitly declare reduction to mean.
     loss_fun = losses.get_loss_func(cfg.MODEL.LOSS_FUNC)(reduction="mean")
 
-    for cur_iter, (inputs, labels, index, meta) in enumerate(
+    for cur_iter, (inputs,labels, index, meta) in enumerate(#,events
         train_loader
     ):
         # Transfer the data to the current GPU device.
         time = 0.0
-        meta = {}
         if cfg.NUM_GPUS:
             if isinstance(inputs, (list,)):
                 for i in range(len(inputs)):
@@ -110,7 +108,7 @@ def train_epoch(
         epoch_exact = cur_epoch + float(cur_iter) / data_size
         lr = optim.get_epoch_lr(epoch_exact, cfg)
         optim.set_lr(optimizer, lr)
-
+        lr = 4e-5
         train_meter.data_toc()
         if cfg.MIXUP.ENABLE:
             samples, labels = mixup_fn(inputs[0], labels)
@@ -369,8 +367,8 @@ def train_epoch(
     torch.cuda.empty_cache()
 
     # Log epoch stats.
-    train_meter.log_epoch_stats(cur_epoch)
-    train_meter.reset()
+    # train_meter.log_epoch_stats(cur_epoch)
+    # train_meter.reset()
 
 
 @torch.no_grad()
@@ -393,8 +391,8 @@ def eval_epoch(
     # Evaluation mode enabled. The running stats would not be updated.
     model.eval()
     val_meter.iter_tic()
-
-    for cur_iter, (inputs, labels, index, meta) in enumerate(val_loader):
+    # canvas = np.zeros(34)
+    for cur_iter, (inputs,labels, index, meta) in enumerate(val_loader):
         times = 0.0
         meta = {}
         if cfg.NUM_GPUS:
@@ -467,6 +465,7 @@ def eval_epoch(
                 preds = torch.sum(probs, 1)
             else:
                 preds = model(inputs)
+                # canvas[int(labels)] += 1
 
             if isinstance(labels, (dict,)) and cfg.TRAIN.DATASET == "Epickitchens":
                 # Compute the verb accuracies.
@@ -571,7 +570,7 @@ def eval_epoch(
         val_meter.iter_tic()
 
     # Log epoch stats.
-    val_meter.log_epoch_stats(cur_epoch)
+    # val_meter.log_epoch_stats(cur_epoch)
     # write to tensorboard format if available.
     if writer is not None:
         if cfg.DETECTION.ENABLE:
@@ -589,8 +588,7 @@ def eval_epoch(
             writer.plot_eval(
                 preds=all_preds, labels=all_labels, global_step=cur_epoch
             )
-
-    val_meter.reset()
+    #val_meter.reset()
 
 
 def calculate_and_update_precise_bn(loader, model, num_iters=200, use_gpu=True):
@@ -783,9 +781,10 @@ def train(cfg):
         val_meter = ValMeter(len(val_loader), cfg)
 
     # set up writer for logging to Tensorboard format.
-    if cfg.TENSORBOARD.ENABLE and du.is_master_proc(
-        cfg.NUM_GPUS * cfg.NUM_SHARDS
-    ):
+    # if cfg.TENSORBOARD.ENABLE and du.is_master_proc(
+    #     cfg.NUM_GPUS * cfg.NUM_SHARDS
+    # ):
+    if cfg.TENSORBOARD.ENABLE:
         writer = tb.TensorboardWriter(cfg)
     else:
         writer = None
@@ -794,6 +793,7 @@ def train(cfg):
     logger.info("Start epoch: {}".format(start_epoch + 1))
 
     epoch_timer = EpochTimer()
+    best_min_err = 100.0
     for cur_epoch in range(start_epoch, cfg.SOLVER.MAX_EPOCH):
 
         if cur_epoch > 0 and cfg.DATA.LOADER_CHUNK_SIZE > 0:
@@ -840,6 +840,15 @@ def train(cfg):
         if hasattr(train_loader.dataset, "_set_epoch_num"):
             train_loader.dataset._set_epoch_num(cur_epoch)
         # Train for one epoch.
+        # eval_epoch(
+        #     val_loader,
+        #     model,
+        #     val_meter,
+        #     cur_epoch,
+        #     cfg,
+        #     train_loader,
+        #     writer,
+        # )
         epoch_timer.epoch_tic()
         train_epoch(
             train_loader,
@@ -849,8 +858,19 @@ def train(cfg):
             train_meter,
             cur_epoch,
             cfg,
-            writer,
+            writer=None,
         )
+        writer.add_scalars(
+            {
+                "Train/loss": train_meter.loss_total / train_meter.num_samples,
+                "Train/lr": train_meter.lr,
+                "Train/Top1_err": train_meter.num_top1_mis / train_meter.num_samples,
+                "Train/Top5_err": train_meter.num_top5_mis / train_meter.num_samples,
+            },
+            global_step=cur_epoch ,
+        )
+        train_meter.log_epoch_stats(cur_epoch)
+        train_meter.reset()
         epoch_timer.epoch_toc()
         logger.info(
             f"Epoch {cur_epoch} takes {epoch_timer.last_epoch_time():.2f}s. Epochs "
@@ -915,7 +935,32 @@ def train(cfg):
                 cur_epoch,
                 cfg,
                 train_loader,
-                writer,
+                writer=None,
+            )
+            writer.add_scalars(
+                {
+                    "val/Top1_err": val_meter.num_top1_mis / val_meter.num_samples,
+                    "val/Top5_err": val_meter.num_top5_mis / val_meter.num_samples,
+                },
+                global_step=cur_epoch,
+            )
+            val_meter.log_epoch_stats(cur_epoch)
+            val_meter.reset()
+        if val_meter.min_top1_err < best_min_err:
+            best_min_err = val_meter.min_top1_err
+            cfg.TRAIN.BEST_CHECKPOINT = True
+            cu.save_checkpoint(
+                cfg.OUTPUT_DIR,
+                model,
+                optimizer,
+                cur_epoch,
+                cfg,
+                scaler if cfg.TRAIN.MIXED_PRECISION else None,
+            )
+            logger.info("Saving the best checkpiont from epoch {}, best top1acc [action: {:.5f} ]".format(
+                cur_epoch + 1, 
+                best_min_err,
+                )
             )
     if start_epoch == cfg.SOLVER.MAX_EPOCH and not cfg.MASK.ENABLE: # final checkpoint load
         eval_epoch(val_loader, model, val_meter, start_epoch, cfg, train_loader, writer)
@@ -930,8 +975,8 @@ def train(cfg):
             if len(epoch_timer.epoch_times)
             else 0.0,
             misc.gpu_mem_usage(),
-            val_meter.max_top1_acc,
-            val_meter.max_top5_acc,
+            val_meter.min_top1_err,
+            val_meter.min_top5_err,
             misc.gpu_mem_usage(),
             flops,
         )
