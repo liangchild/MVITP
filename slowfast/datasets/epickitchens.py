@@ -54,22 +54,23 @@ class Drive_and_act(torch.utils.data.Dataset):
         """
         Construct the video loader.
         """
+        prompt_path_annotations_pickle = None
         if self.mode == "train":
             path_annotations_pickle = [
                 os.path.join(self.cfg.Drive_and_act.ANNOTATIONS_DIR, self.cfg.Drive_and_act.TRAIN_LIST)]
-            if self.cfg.MVIT.INPUT_MODAL == 'RGBIR':
+            if self.cfg.Drive_and_act.TRAIN_MODE == 'prompt_fintuning':
                 prompt_path_annotations_pickle = [
                     os.path.join(self.cfg.Drive_and_act.PROMPT_DATA_DIR, self.cfg.Drive_and_act.TRAIN_LIST)]
         elif self.mode == "val":
             path_annotations_pickle = [
                 os.path.join(self.cfg.Drive_and_act.ANNOTATIONS_DIR, self.cfg.Drive_and_act.VAL_LIST)]
-            if self.cfg.MVIT.INPUT_MODAL == 'RGBIR':
+            if self.cfg.Drive_and_act.TRAIN_MODE == 'prompt_fintuning':
                 prompt_path_annotations_pickle = [
                     os.path.join(self.cfg.Drive_and_act.PROMPT_DATA_DIR, self.cfg.Drive_and_act.VAL_LIST)]
         elif self.mode == "test":
             path_annotations_pickle = [
                 os.path.join(self.cfg.Drive_and_act.ANNOTATIONS_DIR, self.cfg.Drive_and_act.TEST_LIST)]
-            if self.cfg.MVIT.INPUT_MODAL == 'RGBIR':
+            if self.cfg.Drive_and_act.TRAIN_MODE == 'prompt_fintuning':
                 prompt_path_annotations_pickle = [
                     os.path.join(self.cfg.Drive_and_act.PROMPT_DATA_DIR, self.cfg.Drive_and_act.TEST_LIST)]
         else:
@@ -81,10 +82,10 @@ class Drive_and_act(torch.utils.data.Dataset):
             assert os.path.exists(file), "{} dir not found".format(
                 file
             )
-
+        
         self._video_records = []
-        self._prompt_records = []
-        if prompt_path_annotations_pickle is not None:
+        if self.cfg.Drive_and_act.TRAIN_MODE == 'prompt_fintuning':
+            self._prompt_records = []
             for file in prompt_path_annotations_pickle:
                 with open(file, 'r') as fin:
                     for line in fin:
@@ -267,23 +268,25 @@ class Drive_and_act(torch.utils.data.Dataset):
                     "Does not support {} mode".format(self.mode)
                 )
             results = copy.deepcopy(self._video_records[index])
-            prompt_results = copy.deepcopy(self._prompt_records[index])
-            if self.cfg.Drive_and_act.EVENT_PATH is not None:
-                if self.cfg.MVIT.INPUT_MODAL== 'RGBIR':
+            if self.cfg.Drive_and_act.TRAIN_MODE == 'prompt_fintuning':
+                if self.cfg.MVIT.INPUT_MODAL== 'RGBIR' or self.cfg.MVIT.INPUT_MODAL== 'IRRGB':
+                    prompt_results = copy.deepcopy(self._prompt_records[index])
                     prompt_results['prompt_tmpl']='img_{:05d}.jpg' #'event{:06d}.npy'
                     frames,prompts = pack_frames_to_video_clip(self.cfg, results,train_mode=self.cfg.Drive_and_act.TRAIN_MODE, target_fps=self.target_fps,input_modal=self.cfg.MVIT.INPUT_MODAL,prompt_record=prompt_results)
-                else:
-                    results['event_tmpl']='event{:06d}.npy' #'event{:06d}.npy'
-                    results['event_path'] = self.cfg.Drive_and_act.EVENT_PATH
-                    frames,prompts = pack_frames_to_video_clip(self.cfg, results,train_mode=self.cfg.Drive_and_act.TRAIN_MODE, target_fps=self.target_fps,input_modal=self.cfg.MVIT.INPUT_MODAL)
+                elif self.cfg.MVIT.INPUT_MODAL== 'IRE' or self.cfg.MVIT.INPUT_MODAL== 'RGBE':
+                    prompt_results = copy.deepcopy(self._prompt_records[index])
+                    prompt_results['prompt_tmpl']='event{:06d}.npy' #'event{:06d}.npy'
+                    frames,prompts = pack_frames_to_video_clip(self.cfg, results,train_mode=self.cfg.Drive_and_act.TRAIN_MODE, target_fps=self.target_fps,input_modal=self.cfg.MVIT.INPUT_MODAL,prompt_record=prompt_results)
             # frames [T,256,456,3]
             else:
                 frames = pack_frames_to_video_clip(self.cfg, results,train_mode=self.cfg.Drive_and_act.TRAIN_MODE,target_fps=self.target_fps,input_modal=self.cfg.MVIT.INPUT_MODAL)
 
             if self.cfg.DATA.USE_RAND_AUGMENT and self.mode in ["train"]:
                 # Transform to PIL Image
-                frames = [transforms.ToPILImage()(frame.squeeze().numpy()) for frame in frames]
-
+                if self.cfg.MVIT.INPUT_MODAL== 'IRRGB' or self.cfg.MVIT.INPUT_MODAL== 'IRE':
+                    frames = [frame.squeeze().numpy() for frame in frames]
+                else:  
+                    frames = [transforms.ToPILImage()(frame.squeeze().numpy()) for frame in frames]
                 # Perform RandAugment
                 img_size_min = crop_size
                 auto_augment_desc = "rand-m15-mstd0.5-inc1"
@@ -294,9 +297,13 @@ class Drive_and_act(torch.utils.data.Dataset):
                 seed = random.randint(0, 100000000)
                 frames = [autoaugment.rand_augment_transform(
                     auto_augment_desc, aa_params, seed)(frame) for frame in frames]
-                if self.cfg.Drive_and_act.EVENT_PATH is not None:
+                if self.cfg.Drive_and_act.TRAIN_MODE == 'prompt_fintuning':
                     if self.cfg.MVIT.INPUT_MODAL== 'RGBIR':
                         prompts = [prompt.squeeze().numpy() for prompt in prompts]
+                        prompts = [autoaugment.rand_augment_transform(
+                            auto_augment_desc, aa_params, seed)(prompt) for prompt in prompts]
+                    elif self.cfg.MVIT.INPUT_MODAL== 'IRRGB':
+                        prompts = [transforms.ToPILImage()(prompt.squeeze().numpy()) for prompt in prompts] 
                         prompts = [autoaugment.rand_augment_transform(
                             auto_augment_desc, aa_params, seed)(prompt) for prompt in prompts]
                     else:
@@ -305,7 +312,7 @@ class Drive_and_act(torch.utils.data.Dataset):
                 # To Tensor: T H W C
                 frames = [torch.tensor(np.array(frame)) for frame in frames]
                 frames = torch.stack(frames)
-            if self.cfg.Drive_and_act.EVENT_PATH is not None:
+            if self.cfg.Drive_and_act.TRAIN_MODE == 'prompt_fintuning':
                 prompts = [torch.tensor(np.array(prompt)) for prompt in prompts]
                 prompts = torch.stack(prompts)
                 prompts = utils.tensor_normalize(
@@ -343,7 +350,7 @@ class Drive_and_act(torch.utils.data.Dataset):
                     random_horizontal_flip=self.cfg.DATA.RANDOM_FLIP,
                     inverse_uniform_sampling=self.cfg.DATA.INV_UNIFORM_SAMPLE,
                 )
-                if self.cfg.Drive_and_act.EVENT_PATH is not None:
+                if self.cfg.Drive_and_act.TRAIN_MODE == 'prompt_fintuning':
                     prompts = utils.spatial_sampling(
                         prompts,
                         spatial_idx=spatial_sample_index,
@@ -362,7 +369,7 @@ class Drive_and_act(torch.utils.data.Dataset):
                     use_grayscale=self.cfg.DATA.GRAYSCALE,
                     use_gaussian=self.cfg.DATA.GAUSSIAN
                 )
-                if self.cfg.Drive_and_act.EVENT_PATH is not None:
+                if self.cfg.Drive_and_act.TRAIN_MODE == 'prompt_fintuning':
                     prompts = prompts.permute(1, 0, 2, 3) # C T H W -> T C H W
                     prompts = utils.frames_augmentation(
                         prompts,
@@ -372,9 +379,8 @@ class Drive_and_act(torch.utils.data.Dataset):
                     )
             label = self._video_records[index]['label']
             frames = utils.pack_pathway_output(self.cfg, frames)
-            if self.cfg.Drive_and_act.EVENT_PATH is not None:
+            if self.cfg.Drive_and_act.TRAIN_MODE == 'prompt_fintuning':
                 frames.append(prompts)
-            #prompts = utils.pack_pathway_output(self.cfg, prompts)
 
             metadata = {}
             return frames, label, index, metadata

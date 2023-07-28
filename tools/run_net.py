@@ -5,7 +5,7 @@
 import sys
 if '/mnt/cephfs/home/alvin/wenfu/coderepo/SlowFast-main' in sys.path:
     sys.path.remove('/mnt/cephfs/home/alvin/wenfu/coderepo/SlowFast-main')
-sys.path.append('/mnt/cephfs/home/alvin/jialiang/Drive-act/mvitv2/SlowFast-main')
+sys.path.append('/mnt/cephfs/home/alvin/jialiang/Drive-act/mvit/MVITP')
 from slowfast.config.defaults import assert_and_infer_cfg
 from slowfast.utils.misc import launch_job
 from slowfast.utils.parser import load_config, parse_args

@@ -63,8 +63,8 @@ def pack_frames_to_video_clip(
 
     elif train_mode == 'prompt_fintuning': 
             img_paths=list()
-            if prompt_record is not None:
-                prompts=list()
+            prompts=list()
+            if input_modal== 'RGBIR' or input_modal == 'IRRGB':
                 img_paths = [
                     os.path.join(
                         path_to_video, 
@@ -79,17 +79,18 @@ def pack_frames_to_video_clip(
                 prompts = utils.retry_load_images(prompts_paths)     
                 return frames,prompts
             else:
-                events=list()
-                for idx in frame_idx:
-                    imgpath=os.path.join(path_to_video, img_tmpl.format(idx.item()))
-                    ids=imgpath.split('/')[-3]+ '/'+ imgpath.split('/')[-2]
-                    eventpath = os.path.join(video_record['event_path'],ids,video_record['event_tmpl'].format(idx.item()))
-                    eventframe = np.load(eventpath,allow_pickle=True, encoding="latin1")
-                    eventframe=np.transpose(eventframe,(1,2,0))
-                    events.append(eventframe)
-                    img_paths.append(imgpath)
-                frames = utils.retry_load_images(img_paths) 
-                return frames,events
+                img_paths = [
+                    os.path.join(
+                        path_to_video, 
+                        img_tmpl.format(idx.item()
+                    )) for idx in frame_idx]
+                frames = utils.retry_load_images(img_paths)
+                for idx in prompt_frame_idx:
+                    prompts_paths = os.path.join(prompt_record['frame_dir'],prompt_record['prompt_tmpl'].format(idx.item()))
+                    prompt = np.load(prompts_paths,allow_pickle=True, encoding="latin1")
+                    prompt=  np.transpose(prompt,(1,2,0))
+                    prompts.append(prompt)
+                return frames,prompts
     else:
         img_paths = [
             os.path.join(

@@ -5,7 +5,7 @@ TRAIN:
   EVAL_PERIOD: 1
   CHECKPOINT_PERIOD: 5
   AUTO_RESUME: True
-  CHECKPOINT_FILE_PATH: /mnt/cephfs/dataset/m3lab_data/jialiang/mvit/part_RGB/checkpoints/checkpoint_epoch_00025.pyth #/mnt/cephfs/dataset/m3lab_data/wf_data/stts_pth/MViTv2_B_32x3_k400_f304025456.pyth #/mnt/cephfs/dataset/m3lab_data/jialiang/mvit/part_RGB/checkpoints/checkpoint_epoch_00025.pyth #
+  CHECKPOINT_FILE_PATH: /mnt/cephfs/dataset/m3lab_data/jialiang/mvit/new_part_IR_b4_drop0.3/checkpoints/checkpoint_epoch_00049.pyth #/mnt/cephfs/dataset/m3lab_data/jialiang/mvit/part_RGB_b4_drop0.3_lr4e-5/checkpoints/checkpoint_epoch_00044.pyth #/mnt/cephfs/dataset/m3lab_data/jialiang/mvit/new_part_IR_b4_drop0.3/checkpoints/checkpoint_epoch_00049.pyth #/mnt/cephfs/dataset/m3lab_data/wf_data/stts_pth/MViTv2_B_32x3_k400_f304025456.pyth 
 DATA:
   USE_OFFSET_SAMPLING: True
   DECODING_BACKEND: torchvision
@@ -23,9 +23,9 @@ DATA:
   COLORJITTER: False  # new
 Drive_and_act:
   VISUAL_DATA_DIR: /mnt/cephfs/dataset/m3lab_data/Drive-act-event/label
-  ANNOTATIONS_DIR: /mnt/cephfs/dataset/m3lab_data/Drive-act-event/label
-  PROMPT_DATA_DIR: /mnt/cephfs/dataset/m3lab_data/Drive-act-event/label/part-kinect_ir
-  EVENT_PATH: /mnt/cephfs/dataset/Drive-Act-dataset/a-column-co-driver/kinect_ir #/mnt/cephfs/dataset/Drive-Act-dataset/a-column-co-driver/kinect_ir,/mnt/cephfs/dataset/m3lab_data/Drive-act-event
+  ANNOTATIONS_DIR: /mnt/cephfs/dataset/m3lab_data/Drive-act-event/label/part-kinect_ir #/mnt/cephfs/dataset/m3lab_data/Drive-act-event/label
+  PROMPT_DATA_DIR: /mnt/cephfs/dataset/m3lab_data/Drive-act-event/label/part-event #/mnt/cephfs/dataset/m3lab_data/Drive-act-event/label/part-kinect_ir
+  EVENT_PATH: None #/mnt/cephfs/dataset/m3lab_data/Drive-act-event
   TRAIN_MODE: prompt_fintuning #prompt_fintuning ,pretrain_event,pretrain_rgb
   TRAIN_LIST: part_split0_train.txt
   VAL_LIST: part_split0_val.txt
@@ -38,7 +38,7 @@ MVIT:
   DEPTH: 24
   BLOCK_DEPTHS: [0, 3, 6, 22] #[0, 3, 6, 22] ,None
   PROMPT_TYPE: vipt_deep #vipt_deep  None
-  INPUT_MODAL: RGBIR                #EVENT,RGB,RGBE,RGBIR,IR
+  INPUT_MODAL: IRE               #EVENT,RGB,RGBE,RGBIR,IR,IRE,IRRGB
   NUM_HEADS: 1
   EMBED_DIM: 96
   PATCH_KERNEL: (3, 7, 7)
@@ -101,7 +101,7 @@ TEST:
   DATASET: Drive_and_act
   BATCH_SIZE: 2
   NUM_SPATIAL_CROPS: 1
-  NUM_ENSEMBLE_VIEWS: 5
+  NUM_ENSEMBLE_VIEWS: 1
   CHECKPOINT_FILE_PATH: /mnt/cephfs/dataset/m3lab_data/jialiang/mvit/part_prompt_b4_drop0.3_freezelr4e-5/checkpoints/checkpoint_epoch_00029.pyth
 DATA_LOADER:
   NUM_WORKERS: 8
